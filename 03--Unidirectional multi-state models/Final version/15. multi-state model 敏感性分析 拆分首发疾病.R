@@ -1,0 +1,239 @@
+# 已剔除基线患有肿瘤和糖尿病，脑卒中和缺血性心脏病
+# 调整变量删除职业 8/31
+# 所有协变量均设置为trans-specific
+### 2020/2/22
+# 剔除日期相同个体
+# 拆分首发结局，建立不同的转换矩阵
+
+
+# 设置工作路径
+rm(list=ls())
+setwd("D:/HanYT/2019-06 Multimorbidity")
+library(mstate)
+library(plyr)
+library(lmtest)
+library(stringr)
+library(tidyverse)
+library(reshape2)
+
+################################################################################################################################################
+###################################                                                           ##################################################
+###################################                    gen dataset                            ##################################################
+###################################                                                           ##################################################
+################################################################################################################################################
+
+# 载入数据
+load("./1. Database/project4.rdata")
+
+tempfile <- project4
+project4.split <- subset(tempfile,study_date != du_ep0001_date)
+
+
+# 时间换算为年龄（岁）
+project4.split$study_date <- as.numeric(project4.split$study_date)
+project4.split$first_cmd_inc_date <- as.numeric(project4.split$first_cmd_inc_date)
+# 
+project4.split$c_ep0003_date <- as.numeric(project4.split$c_ep0003_date)
+project4.split$c_ep0009_date <- as.numeric(project4.split$c_ep0009_date)
+project4.split$c_ep0008_date <- as.numeric(project4.split$c_ep0008_date)
+project4.split$c_ep0088_date <- as.numeric(project4.split$c_ep0088_date)
+project4.split$mltmbd_inc_date <- as.numeric(project4.split$mltmbd_inc_date)
+project4.split$du_ep0001_date <- as.numeric(project4.split$du_ep0001_date)
+project4.split$dob_anon <- as.numeric(project4.split$dob_anon)
+
+# 一、某些研究对象首次心血管代谢性疾病发生于2017年12月31日，在上述基础上加上0.5天
+attach(project4.split)
+project4.split$mltmbd_inc_date[first_cmd_inc==1&mltmbd_inc==0&dzu_ep0001==0&first_cmd_inc_date==as.numeric(as.Date("31/12/17", "%d/%m/%y"))] <- project4.split$mltmbd_inc_date[first_cmd_inc==1&mltmbd_inc==0&du_ep0001==0&first_cmd_inc_date==as.numeric(as.Date("31/12/17", "%d/%m/%y"))] + 0.5
+project4.split$du_ep0001_date[first_cmd_inc==1&mltmbd_inc==0&du_ep0001==0&first_cmd_inc_date==as.numeric(as.Date("31/12/17", "%d/%m/%y"))] <- project4.split$du_ep0001_date[first_cmd_inc==1&mltmbd_inc==0&du_ep0001==0&first_cmd_inc_date==as.numeric(as.Date("31/12/17", "%d/%m/%y"))] + 0.5 
+detach(project4.split)
+
+# 计算年龄
+project4.split[, c("study_date", "c_ep0003_date","c_ep0009_date", "c_ep0008_date", "c_ep0088_date", "first_cmd_inc_date", "mltmbd_inc_date", "du_ep0001_date")] <- (project4.split[, c("study_date", "c_ep0003_date","c_ep0009_date", "c_ep0008_date", "c_ep0088_date", "first_cmd_inc_date", "mltmbd_inc_date", "du_ep0001_date")]-project4.split$dob_anon)/365.25
+summary(project4.split[, c("dob_anon","study_date", "c_ep0003_date","c_ep0009_date", "c_ep0008_date", "c_ep0088_date", "first_cmd_inc_date", "mltmbd_inc_date", "du_ep0001_date")])
+class(project4.split$dob_anon)
+
+# # # gen original database
+# 选取需要的变量进行分析，避免数据库过大
+covariates <- c("studyid","age_strata","region_code","region_is_urban","is_female","highest_education","occupation",
+                "marital_status_2groups","household_income","parental_fh_3groups","parental_fh_2groups", "menopause_2groups",
+                "age_3groups","region_is_urban", "education_3groups","has_hypertension") 
+phrases <- c("study_date","first_cmd_inc","first_cmd_inc_date","mltmbd_inc","mltmbd_inc_date","du_ep0001","du_ep0001_date",
+             "c_ep0003","c_ep0003_date","c_ep0008","c_ep0008_date","c_ep0009","c_ep0009_date","c_ep0088","c_ep0088_date")
+lifestyles <- c("healthy_smoking","healthy_alcohol","healthy_diet","healthy_bmi","healthy_WC","healthy_sleep","healthy_PA","healthy_score_5groups","healthy_score",
+                "risky_smoking","risky_alcohol","risky_diet","risky_bmi","risky_WC","risky_sleep","risky_PA","risky_obesity","risky_score_5groups","risky_score")
+varlist <- c(covariates,phrases,lifestyles)
+
+# # 数据库中存在不同阶段记录时间相同的个体，生成对应变量指代其类型 
+attach(project4.split)
+project4.split$sametime[first_cmd_inc==1 & du_ep0001 == 1 & du_ep0001_date==first_cmd_inc_date] <- 1      # 死于首次CMD
+project4.split$sametime[first_cmd_inc==1 & mltmbd_inc == 1 & mltmbd_inc_date==first_cmd_inc_date] <- 2      # 首次心血管代谢性疾病时间与共病记录日期相同
+project4.split$sametime[mltmbd_inc == 1 & du_ep0001 == 1 & mltmbd_inc_date==du_ep0001_date] <- 3      # 死于首次发生共病
+project4.split$sametime[first_cmd_inc == 1 &  mltmbd_inc == 1 & du_ep0001 == 1 & mltmbd_inc_date==du_ep0001_date & first_cmd_inc_date==mltmbd_inc_date] <- 4      # 首次CMD、共病和死亡日期相同
+project4.split$sametime[is.na(project4.split$sametime)] <- 0
+table(project4.split$sametime)
+
+# # 增加考虑首发疾病 21/2/22
+project4.split$sametime.fcmd[(c_ep0003==1&c_ep0008==1&c_ep0003_date==c_ep0008_date) |
+                             (c_ep0003==1&c_ep0009==1&c_ep0003_date==c_ep0009_date) |
+                             (c_ep0003==1&c_ep0088==1&c_ep0003_date==c_ep0088_date) |
+                             (c_ep0009==1&c_ep0008==1&c_ep0009_date==c_ep0008_date) |
+                             (c_ep0009==1&c_ep0088==1&c_ep0009_date==c_ep0088_date) |
+                             (c_ep0008==1&c_ep0088==1&c_ep0008_date==c_ep0088_date)]  <- 1
+project4.split$sametime.fcmd[is.na(project4.split$sametime.fcmd)] <- 0    
+
+# # 部分人死于HS
+project4.split$sametime.hs[c_ep0008==1 & du_ep0001 == 1 & du_ep0001_date==c_ep0008_date] <- 1
+project4.split$sametime.hs[is.na(project4.split$sametime.hs)]  <- 0                  
+detach(project4.split)
+table(project4.split$sametime.fcmd)
+table(project4.split$sametime.hs)
+
+# # # 对时间相同的不同阶段进行处理
+# # 死于首次CMD
+# project4.split$first_cmd_inc_date[project4.split$sametime==1] <- project4.split$du_ep0001_date[project4.split$sametime==1] - 0.5/365.25
+# # 首次心血管代谢性疾病时间与共病记录日期相同
+# project4.split$first_cmd_inc_date[project4.split$sametime==2] <- project4.split$mltmbd_inc_date[project4.split$sametime==2] - 0.5/365.25
+# # 死于首次发生共病
+# project4.split$mltmbd_inc_date[project4.split$sametime==3] <- project4.split$du_ep0001_date[project4.split$sametime==3] - 0.5/365.25
+# # 首次CMD、共病和死亡日期相同
+# project4.split$mltmbd_inc_date[project4.split$sametime==4] <- project4.split$du_ep0001_date[project4.split$sametime==4] - 0.5/365.25
+# project4.split$first_cmd_inc_date[project4.split$sametime==4] <- project4.split$mltmbd_inc_date[project4.split$sametime==4] - 0.5/365.25
+
+# # # 剔除同时进入的人(挪到下面了)
+# project4.split <- subset(project4.split, sametime == 0 & sametime.fcmd == 0 & sametime.hs == 0) 
+
+# 仅保留需要的变量
+mltstate.origin.split <- subset(project4.split, select = varlist, sametime == 0 & sametime.fcmd == 0 & sametime.hs == 0)  
+# 生成代表进入研究的阶段
+mltstate.origin.split$enrollment <- 1
+
+# 设置路径
+tmat.split <- transMat(x = list(c(2,3,4,5,7), c(6,7), c(6,7), c(6,7), c(6,7), c(7), c()), names = c("healthy", "IHD","IS", "HS", "T2DM", "mltmbd", "Death"))
+
+# Wide to long
+mltstate.long.split <- msprep(data = mltstate.origin.split, trans = tmat.split,
+                        time = c(NA, "c_ep0003_date","c_ep0009_date", "c_ep0008_date", "c_ep0088_date", "mltmbd_inc_date","du_ep0001_date"),
+                        status = c(NA, "c_ep0003", "c_ep0009", "c_ep0008", "c_ep0088", "mltmbd_inc", "du_ep0001"),
+                        keep = c(covariates,lifestyles,"first_cmd_inc","mltmbd_inc","c_ep0003", "c_ep0009", "c_ep0008", "c_ep0088", "mltmbd_inc", "du_ep0001"),
+                        start = list(state = mltstate.origin.split$enrollment,time = mltstate.origin.split$study_date))
+
+# Transitions
+events(mltstate.long.split)
+sum(mltstate.long.split$time==0)
+events.primary <- events(mltstate.long.split)
+# freq_trans <- data.frame(events.primary$Frequencies)
+# freq_trans <- dcast(freq_trans,from~to,value.var = "Freq")
+# prop_trans <- data.frame(events.primary$Proportions)
+# prop_trans <- dcast(prop_trans,from~to,value.var = "Freq")
+# for (i in 2:5){
+#     freq_trans[,i] <- paste(freq_trans[,i]," (",round(prop_trans[,i],3),")")
+# }
+# write.csv(freq_trans, paste("3. Result/multistate/primary analyses/transitions split sametime",".csv",sep = ""))
+
+# Set lifestyle score as category
+mltstate.long.split$hscore <- mltstate.long.split$healthy_score
+mltstate.long.split$hscore.cat <- as.factor(mltstate.long.split$healthy_score_5groups)
+
+mltstate.long.split$rscore <- mltstate.long.split$risky_score
+mltstate.long.split$rscore.cat <- as.factor(mltstate.long.split$risky_score_5groups)
+
+mltstate.long.split$number_cmd <- 0
+mltstate.long.split$number_cmd[mltstate.long.split$first_cmd_inc==1] <- 1
+mltstate.long.split$number_cmd[mltstate.long.split$mltmbd_inc==1] <- 2
+# Transition-specific covariates
+long_covariates <- c("is_female","highest_education","occupation","marital_status_2groups","menopause_2groups","number_cmd",
+                     "age_3groups","region_is_urban", "education_3groups","has_hypertension","region_code","parental_fh_3groups","parental_fh_2groups")
+long_lf <- c("healthy_smoking","healthy_alcohol","healthy_diet","healthy_bmi","healthy_WC","healthy_sleep","healthy_PA","hscore","hscore.cat",
+             "risky_smoking","risky_alcohol","risky_diet","risky_bmi","risky_WC","risky_sleep","risky_obesity","risky_PA","rscore","rscore.cat","risky_score_5groups")
+mltstate.full.split <- expand.covs(mltstate.long.split, c(long_covariates,long_lf), longnames = FALSE)  # 均为哑变量
+head(mltstate.full.split)
+names(mltstate.full.split)
+
+# split observation of which time = 0 
+message(sum(mltstate.full.split$time==0)," records was splited")
+mltstate.final.split <- subset(mltstate.full.split,time != 0)
+
+################################################################################################################################################
+###################################                                                           ##################################################
+###################################                    primary analyses                       ##################################################
+###################################                                                           ##################################################
+################################################################################################################################################
+path_split <- paste0("3. Result/multistate/sensitivity analyses split","/",Sys.Date())
+dir.create(path_split)
+
+
+# # COX model 设置
+cox_formula <- "Surv(Tstart, Tstop, status) ~ strata(trans)+ strata(region_code) + strata(age_strata)"
+
+# # 调整变量
+adjust_variates <- c("is_female", "highest_education", "marital_status_2groups", "parental_fh_3groups")
+adjust_formula <- cox_formula
+for (i in 1:length(adjust_variates)) {
+  
+  adjust_formula <- paste(adjust_formula,"+",paste(adjust_variates[i],".",1:14,sep = "", collapse = " + "))
+  
+}
+
+# # 生活方式变量
+# 单一生活方式
+single_lifestyle_variates <- c("risky_smoking","risky_alcohol","risky_diet","risky_PA","risky_obesity")
+single_lifestyle_formula <- ""
+for (i in 1:length(single_lifestyle_variates)) {
+  
+  single_lifestyle_formula <- paste(single_lifestyle_formula,"+",paste(single_lifestyle_variates[i],".",1:14,sep = "", collapse = " + "))
+  
+}
+
+single_lifestyle_formula <- paste(adjust_formula, single_lifestyle_formula, sep = "")
+# 无序多分类变量
+category_lifestyle_variates1 <- paste0("rscore.cat1",".",1:14,sep="")
+category_lifestyle_variates2 <- paste0("rscore.cat2",".",1:14,sep="")
+category_lifestyle_variates3 <- paste0("rscore.cat3",".",1:14,sep="")
+category_lifestyle_variates4 <- paste0("rscore.cat4",".",1:14,sep="")
+category_lifestyle_formula <- ""
+for (i in 1:14) {
+  
+  category_lifestyle_formula <- paste(category_lifestyle_formula,category_lifestyle_variates1[i],category_lifestyle_variates2[i],
+                                      category_lifestyle_variates3[i],category_lifestyle_variates4[i], sep = " + ") 
+}
+
+category_lifestyle_formula <- paste(adjust_formula,category_lifestyle_formula,sep="")
+
+ordinal_lifestyle_formula <- paste(adjust_formula,"+",paste("rscore",".",1:14,sep = "", collapse = " + "))
+
+# # # # dichotomous single lifestyle;model 1 和 model2 差别很小，下面仅罗列了model2;家族史变量调一个和两个没有大的区别（05-24）
+single2 <- coxph(as.formula(single_lifestyle_formula),data = mltstate.final.split, method = "breslow")
+single.hr2 <- data.frame(round(summary(single2)$conf.int,2))
+single.hr2[,5] <- paste0(sprintf(single.hr2[,1],fmt="%.2f")," (",sprintf(single.hr2[,3],fmt="%.2f"),"-",sprintf(single.hr2[,4],fmt="%.2f"),")")
+#single.hr2[,6] <- rownames(single.hr2)
+#single.hr2[,6] <- substr(single.hr2[,6],1,nchar(single.hr2[,6])-2)
+#single.hr2[,7] <- 1:5
+#single.hr2 <- single.hr2[(nrow(single.hr2)-29):nrow(single.hr2),]
+#names(single.hr2)[c(1,3,4,5,6,7)] <- c("HR","Lower_CI","Upper_CI","HR_95CI","Variable","Transition")
+#single.hr2 <- dcast(single.hr2,Variable~single.hr2$Transition,value.var = "HR_95CI")
+write.csv(single.hr2, paste0(path_split,"/dichotomous single model2 split",".csv"))
+
+
+
+### Calculate HR for lifestyle score (category) 
+# Model 2: model 1 + education,occupation, marital status, family history of multimorbidity
+scorecat2 <- coxph(as.formula(category_lifestyle_formula), data = mltstate.final.split, method = "breslow")
+scorecat.hr2 <- data.frame(round(summary(scorecat2)$conf.int,2))
+scorecat.hr2[,5] <- paste0(sprintf(scorecat.hr2[,1],fmt="%.2f")," (",sprintf(scorecat.hr2[,3],fmt="%.2f"),"-",sprintf(scorecat.hr2[,4],fmt="%.2f"),")")
+#scorecat.hr2[,6] <- rownames(scorecat.hr2)
+#scorecat.hr2[,6] <- substr(scorecat.hr2[,6],1,nchar(scorecat.hr2[,6])-2)
+#scorecat.hr2[,7] <- str_sub(rownames(scorecat.hr2),-1)
+#scorecat.hr2 <- scorecat.hr2[(nrow(scorecat.hr2)-19):nrow(scorecat.hr2),]
+#names(scorecat.hr2)[c(1,3,4,5,6,7)] <- c("HR","Lower_CI","Upper_CI","HR_95CI","Variable","Transition")
+#scorecat.hr2 <- dcast(scorecat.hr2,Variable~scorecat.hr2$Transition,value.var = "HR_95CI")
+write.csv(scorecat.hr2, paste0(path_split,"/category score model2 split",".csv"))
+
+### Calculate HR for lifestyle score (ordinal) （各阶段协变量系数相同）
+# Model 2: model 1 + education,occupation, marital status, family history of multimorbidity
+scoreord2 <- coxph(as.formula(ordinal_lifestyle_formula),data = mltstate.final.split, method = "breslow")
+scoreord.hr2 <- data.frame(round(summary(scoreord2)$conf.int,2))
+scoreord.hr2[,5] <- paste0(sprintf(scoreord.hr2[,1],fmt="%.2f")," (",sprintf(scoreord.hr2[,3],fmt="%.2f"),"-",sprintf(scoreord.hr2[,4],fmt="%.2f"),")")
+write.csv(scoreord.hr2, paste0(path_split,"/ordinal score model2 split",".csv"))
+
+
+

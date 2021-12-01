@@ -1,0 +1,148 @@
+---
+title: "Day3_furrr"
+author: "bahapku"
+date: "2020/4/4"
+output: 
+    prettydoc::html_pretty:
+      theme: hpstr
+      highlight: github
+---
+#different data ,one model
+```{r}
+library(broom)
+library(furrr)
+library(tidyr)
+library(gapminder)
+library(tictoc)
+plan(multiprocess)
+tic()
+gapminder %>% group_by(country) %>% nest() %>%ungroup() %>% 
+  mutate(models=future_map(data,~lm(lifeExp~pop+gdpPercap,data = .x)),
+         detail_coefs=models %>% future_map(tidy,.options = future_options(packages = "broom")),
+         simple_coefs=models %>% future_map(coef),
+         intercept=models %>% future_map_dbl(~pluck(coef(.),"(Intercept)")),
+         coef_yours=models %>% future_map_dbl(~pluck(coef(.),"pop")),
+         stat_inf=models %>% future_map(glance,.options = future_options(packages = "broom")),
+         augments=models %>% future_map(augment,.options = future_options(packages = "broom")),
+         AIC=stat_inf %>% future_map_dbl("AIC"),
+         BIC=stat_inf %>% future_map_dbl("BIC"),
+         degree_fredom=stat_inf %>% future_map_dbl("df"),
+         r_squared=stat_inf %>% future_map_dbl("r.squared"),
+         P_value=stat_inf %>% future_map_dbl("p.value"))
+          
+  toc()
+
+  
+```
+仅仅运用了6秒时间    
+
+```{r}
+library(broom)
+library(furrr)
+library(tidyr)
+library(gapminder)
+library(tictoc)
+plan(multiprocess)
+gapminder %>% group_by(country) %>% nest() %>%ungroup() %>% 
+  mutate(models=future_map(data,~lm(lifeExp~pop+gdpPercap,data = .x)),
+         detail_coefs=models %>% future_map(tidy,.options = future_options(packages = "broom")),
+         simple_coefs=models %>% future_map(coef),
+         intercept=models %>% future_map_dbl(~pluck(coef(.),"(Intercept)")),
+         coef_yours=models %>% future_map_dbl(~pluck(coef(.),"pop")),
+         stat_inf=models %>% future_map(glance,.options = future_options(packages = "broom")),
+         augments=models %>% future_map(augment,.options = future_options(packages = "broom")),
+         AIC=stat_inf %>% future_map_dbl("AIC"),
+         BIC=stat_inf %>% future_map_dbl("BIC"),
+         degree_fredom=stat_inf %>% future_map_dbl("df"),
+         r_squared=stat_inf %>% future_map_dbl("r.squared"),
+         P_value=stat_inf %>% future_map_dbl("p.value")) %>% 
+  ggplot()+geom_point(aes(x=country,y=sort(r_squared),color= P_value<0.05))+
+  theme_ipsum()
+```
+也可以紧接着画你想要的任何图    
+
+# one data,different models
+```{r}
+f1 <- lifeExp ~ pop
+f2 <- lifeExp ~ pop+gdpPercap
+f3 <- lifeExp ~ pop + gdpPercap + year
+f4 <- lifeExp ~ pop + gdpPercap + year + continent
+formulas <- list(f1,f2,f3,f4)
+library(broom)
+library(furrr)
+library(tidyr)
+library(gapminder)
+library(tictoc)
+head(gapminder,5)
+plan(multiprocess)
+tic()
+ formulas %>% future_map(~lm(.x,data = gapminder)) -> models
+  tibble(
+    formulas=models %>% future_map_chr(~format(formula(.))),
+    coef_yours=models %>% future_map_dbl(~pluck(coef(.),"pop")),
+    r_squared=models %>% future_map_dbl(~pluck(glance(.),"r.squared"),.options = future_options(packages = "broom")),
+    p_value=models %>% future_map_dbl(~pluck(glance(.),"p.value"),.options = future_options(packages = "broom"))
+  ) 
+ toc()
+```
+
+#one model ,for each index data
+```{r}
+library(broom)
+library(furrr)
+library(tidyr)
+library(gapminder)
+library(tictoc)
+plan(multiprocess)
+tic()
+gapminder %>% split(.$country)  -> split_data
+split_data %>% future_map(~lm(lifeExp ~ pop + gdpPercap + year,data = .x)) %>% 
+  future_map_dfr(~tibble(
+    formulas=format(formula(.x)),
+    detail_coefs=list(tidy(.x)),
+    simple_coefs=list(coef(.x)),
+    r_squared=pluck(glance(.x),"r.squared"),
+    p_value=pluck(glance(.x),"p.value")
+    
+  ),.id = "country",.options = future_options(packages = "broom"))
+toc()
+```
+
+# advantages on summerizing     
+question: Subset the gapminder data according to the following regions, then find the mean life expectancy and mean GDP per capita for each region in each year    
+
+ANZ <- c("Australia", "New Zealand")   
+
+SEA <- c("Cambodia", "Indonesia", "Malaysia", "Myanmar", "Philippines", 
+         "Singapore", "Thailand", "Vietnam")    
+         
+SA <- c("Bangladesh", "India", "Nepal", "Pakistan", "Sri Lanka")   
+
+EA <- c("China", "Hong Kong, China", "Japan", "Korea, Dem. Rep.", "Korea, Rep.", 
+        "Taiwan")   
+        
+```{r}
+library(broom)
+library(furrr)
+library(tidyr)
+library(gapminder)
+library(tictoc)
+plan(multiprocess)
+ANZ <- c("Australia", "New Zealand")
+SEA <- c("Cambodia", "Indonesia", "Malaysia", "Myanmar", "Philippines", 
+         "Singapore", "Thailand", "Vietnam")
+SA <- c("Bangladesh", "India", "Nepal", "Pakistan", "Sri Lanka")
+EA <- c("China", "Hong Kong, China", "Japan", "Korea, Dem. Rep.", "Korea, Rep.", 
+        "Taiwan")
+list(ANZ=ANZ, SEA=SEA, SA=SA, EA=EA) %>% 
+ future_map(~dplyr::filter(gapminder,country  %in% .x)) %>% 
+  future_map(~group_by(.x,year)) %>% 
+  future_map_dfr(~summarise(.x,mean_lifeexp=mean(lifeExp),mean_gdp=mean(gdpPercap)),.id = "region")  -> result
+  
+  result
+ggplot( result, aes(x=year, y=mean_lifeexp, col=region)) +
+  geom_line()
+  
+
+```
+

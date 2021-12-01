@@ -1,0 +1,533 @@
+---
+title: "Direct standardisation and baseline tables"
+output:
+  html_document:
+    keep_md: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 5
+  pdf_document:
+    fig_caption: yes
+    fig_crop: no
+    keep_tex: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 5
+  word_document: default
+author: Neil Wright
+date: "2 July 2018"
+---
+
+```{r, echo = FALSE, include = FALSE}
+library(knitr)
+opts_chunk$set(fig.width = 5.5, fig.height = 4.5, echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.align = "left", sanitize = TRUE)
+# opts_chunk$set(fig.width = 2.5, fig.height = 3, eval = TRUE, include = TRUE, cache = TRUE)
+
+# install.packages('printr', type = 'source', repos = c('http://yihui.name/xran', 'http://cran.rstudio.com'))
+
+library(printr)
+```
+
+**Neil Wright  (SAS macros by Paul Sherliker and Neil Wright)**  
+**2 July 2018**
+
+
+## Direct standardisation
+
+### SAS
+
+The SAS macro `%doprev` calcaluates standardised means and prevalences.
+
+The target distribution for standardisation is one in which the proportions of people in the &STRATA groups are identical in each &PERCVAR group and equal to the raw proportions overall. 
+
+\newcommand{\warningtext}{\color{red}{\text{!!}}}
+
+$\warningtext$ DOPREV will start to fall apart (silently) if any groups contain no people. Perhaps you may be okay 
+if only a few groups out of many are empty. 
+
+$\warningtext$ The standard errors will not be valid for low prevalences (i.e. they may imply a confidence interval which
+extends below a prevalence of 0).
+
+
+```{r, eval = FALSE}
+Parameters: 
+   DATA_IN  = Input data set
+   DEPEND   = Dependent variable: the thing we want prevalence or means of.
+              For prevalence this variable must take values 0 and 1.
+   PERCVAR  = Categorical variable(s) to group adjusted means or frequencies by
+   STRATA   = Categorical variable(s) to standardise on
+   DO_FREQ  = Do prevalence rather than means? (0 = No, 1 = Yes)
+             (Will only make sense if DEPEND is a 0/1 variable, but DOPREV DOES NOT CHECK THAT!)
+   DATA_OUT = Name of output dataset
+   WHERE    = Subset to get results for
+   CLEANUP  = Delete datasets appropriately?  (0 = No, 1 = Yes)
+
+Data sets created: 
+   In addition to &DATA_OUT, DOPREV also creates the datasets WORK.DOPREV_1, WORK.DOPREV_2, WORK.DOPREV_3 and 
+   WORK.DOPREV_WEIGHTS.  If &CLEANUP is set, it deletes all of its datasets when it starts and deletes 
+   all but &DATA_OUT just before it exits.
+   (To help avoid producing nonsense results if one of the PROC MEANS fails.)
+
+   The variables in the output dataset are:
+   PERCVAR   = grouping variable(s)
+   ADJMEAN   = adjusted mean or adjusted prevalence
+   ADJSEM    = standard error of adjmean
+   LOWCI     = AJDMEAN-1.96*ADJSEM
+   HIGHCI    = ADJMEAN+1.96*ADJSEM
+   N         = number of people in group
+   VARIABLE  = name of the variable, i.e. &DEPEND
+   DATASET   = name of the input data, i.e. &DATA_IN
+   WHERE     = &WHERE
+   RAWMEAN   = unadjusted mean or prevalence
+   RAWSEM    = unadjusted standard error of RAWMEAN
+   RAWLOWCI  = RAWMEAN - 1.96*RAWSEM
+   RAWHIGHCI = RAWMEAN + 1.96*RAWSEM
+   SUMW      = sum of weights.  SUMW will be equal to the total N if there are no empty cells.;
+```
+
+
+
+
+
+#### Example
+```{r, eval = FALSE}
+* Include required macro ;
+%include "doprev.sas";
+
+* Get data set;
+PROC IMPORT OUT= WORK.dataset 
+            DATAFILE= "dataset.csv" 
+            DBMS=CSV REPLACE;
+     GETNAMES=YES;
+     DATAROW=2; 
+RUN;
+
+* Create group variable ;
+DATA dataset ;
+  set dataset ;
+  if       . <  bmi_calc < 25 then bmi_grp = '<25' ;
+  else if 25 <= bmi_calc < 30 then bmi_grp = '25-30' ;
+  else if 30 <= bmi_calc      then bmi_grp = '>30' ;
+RUN;
+
+* Use doprev macro ;
+%DOPREV(DATA_IN  = dataset ,
+        DEPEND   = nmr_glc ,
+        PERCVAR  = bmi_grp ,
+        STRATA   = is_female region_code,
+        DO_FREQ  = 0 ,
+        DATA_OUT = outputdataset ,
+        WHERE    = ,
+        CLEANUP  = 1);
+```
+
+![](doprevoutput.png)
+
+#### Macro code
+
+<input type=button class=hideshow></input>
+
+```{r, eval = FALSE}
+%MACRO DOPREV(DATA_IN, DEPEND, PERCVAR, STRATA=RC IS_FEMALE, DO_FREQ=1, DATA_OUT=DOPREV_OUT, WHERE=(1 EQ 1), 
+   CLEANUP=1);
+
+/* Delete any datasets that DOPREV intends to create, in case creation fails leading to spurious results */
+%IF &CLEANUP = 1 %THEN %DO;
+   PROC DATASETS LIBRARY=WORK;
+      DELETE &DATA_OUT DOPREV_1 DOPREV_2 DOPREV_3 DOPREV_4 DOPREV_WEIGHTS;
+   RUN;
+   QUIT;
+%END;
+
+/* Weights: proportional to N in the _&STRATA_ groups */
+PROC MEANS DATA=&DATA_IN NWAY NOPRINT;
+   WHERE &WHERE;
+   CLASS &STRATA;
+   VAR &DEPEND;
+   OUTPUT N=WEIGHT OUT=DOPREV_WEIGHTS;
+RUN;
+
+/* Raw values */
+PROC MEANS DATA=&DATA_IN NWAY NOPRINT;
+   WHERE &WHERE;
+   CLASS &PERCVAR &STRATA;
+   VAR &DEPEND;
+   OUTPUT MEAN=MEAN N=N STDERR=SEM STDDEV=STDDEV OUT=DOPREV_1;
+RUN;
+
+PROC SORT DATA=DOPREV_1;
+   BY &STRATA;
+RUN;
+
+/* Merge weights, generate weight-value combinations for summation */
+DATA DOPREV_2;
+   MERGE DOPREV_1 DOPREV_WEIGHTS;
+   BY &STRATA;
+   VAR = SEM*SEM;
+   POPVAR = STDDEV*STDDEV;
+   /* Change variance to that suitable for a proportion if necessary */
+   %IF &DO_FREQ = 1 %THEN %DO;
+       VAR = MEAN *(1-MEAN) /N;
+   %END;
+
+   WMEAN = WEIGHT*MEAN;
+   W2VAR = WEIGHT*WEIGHT*VAR;
+   W2 = WEIGHT*WEIGHT;
+   W2POPVAR = WEIGHT*WEIGHT*POPVAR;
+   DROP _TYPE_ _FREQ_ SEM;
+RUN;
+
+/* Now, we compute sums for wmean, n, w2var, w2 and weight across the values of the 
+  &PERCVAR variables
+  Using proc means to do this is quite a bit easier than attempting to automate 
+  a datastep and using retain */
+PROC MEANS DATA=DOPREV_2 NOPRINT NWAY;
+   CLASS &PERCVAR;
+   VAR WMEAN W2VAR W2 WEIGHT N W2POPVAR;
+   OUTPUT OUT=DOPREV_3 SUM=SUMWMEAN SUMW2VAR SUMW2 SUMW N SUMW2POPVAR;
+RUN;
+
+* Calculation of crude means or prevalences;
+PROC MEANS DATA=&DATA_IN NWAY NOPRINT;
+   WHERE &WHERE;
+   CLASS &PERCVAR;
+   VAR &DEPEND;
+   OUTPUT MEAN=RAWMEAN N=RAWN STDERR=RAWSEM STDDEV=RAWSTDDEV OUT=DOPREV_4;
+RUN;
+
+DATA DOPREV_4;
+   SET DOPREV_4;
+   /* Change SEM to that suitable for a proportion if necessary */
+   %IF &DO_FREQ = 1 %THEN %DO;
+       RAWSEM = SQRT(RAWMEAN *(1-RAWMEAN) /RAWN);
+   %END;
+   RAWLOWCI = RAWMEAN - 1.96*RAWSEM;
+   RAWHIGHCI = RAWMEAN + 1.96*RAWSEM;
+   KEEP &PERCVAR RAWMEAN RAWSEM RAWLOWCI RAWHIGHCI;
+RUN;
+
+/* Finally, use the summed values to compute the adjusted means */
+DATA &DATA_OUT;
+   MERGE DOPREV_3 DOPREV_4;
+   BY &PERCVAR;
+   LENGTH VARIABLE DATASET WHERE $ 30;
+   ADJMEAN = SUMWMEAN/SUMW;
+   ADJVAR = SUMW2VAR/(SUMW*SUMW);
+   ADJSEM = SQRT(ADJVAR);
+   LOWCI = ADJMEAN - 1.96*ADJSEM;
+   HIGHCI = ADJMEAN + 1.96*ADJSEM;
+   VARIABLE = "&DEPEND";
+   DATASET = "&DATA_IN";
+   WHERE = "&WHERE";
+   KEEP &PERCVAR ADJMEAN ADJSEM LOWCI HIGHCI N VARIABLE DATASET WHERE RAWMEAN RAWSEM RAWLOWCI RAWHIGHCI SUMW;
+RUN;
+
+/* Remove temporary datasets */
+%IF &CLEANUP = 1 %THEN %DO;
+   PROC DATASETS LIBRARY=WORK;
+      DELETE DOPREV_1 DOPREV_2 DOPREV_3 DOPREV_4 DOPREV_WEIGHTS;
+   RUN;
+   QUIT;
+%END;
+
+%MEND;
+```
+
+
+#### Notes
+The prevalences are computed in the same way as the means, but the standard errors for percentages are computed differently.  (and for all I know, inappropriately.) 
+
+DOPREVs weights are the number of people with a value of &DEPEND in a cross-tabulation of the &STRATA variables. This is similar to using a full interaction of all the &STRATA in a regression-based model.
+
+
+
+
+
+
+
+
+
+
+
+
+## Baseline tables
+
+### SAS
+
+The SAS macro `%doprevtables` applies the `%doprev` macro to a list of variables, and creates output datasets and (optionally) tables.
+
+If the grouping variable (PERCVAR) contains only values 0 and 1 then it is assumed to be binary, and the appropriate parameter is set in `%doprev` to produce prevalences. Otherwise it is assumed to be continuous, and `%doprev` will produce means.
+
+```{r, eval = FALSE}
+* Parameters:
+  DATA_IN         = *Passed to doprev
+  DEPEND_LIST     = List of 'depend' variables (continuous, or binary using 0 and 1 only)
+  VARIABLELABELS  = Format containing labels and order for depend variables (see example)
+  PERCVAR         = *Passed to doprev ** This needs to be a character variable **
+  PERCVARLABELS   = Format containing labels and order for percvar categories (see example)
+  PERCVARNAME     = Label for percvar
+  STRATA          = *Passed to doprev
+  OUTPUT          = Stem for dataset(s) that are created
+  WHERE           = *Passed to doprev
+  TABLETYPE       = 0 (no tables)
+                    1 (seperate tables for continuous and binary variables),
+                    2 (one table, two columns per percvar group) or
+                    3 (one table, one column per percvar group)
+```
+
+#### Example
+
+Example of how to use the macro in SAS to create a table which is output to a Rich Text Format file.
+
+```{r, eval = FALSE}
+* Include required macros ;
+%include "doprev.sas";
+%include "doprevtables.sas";
+
+* Get data set;
+PROC IMPORT OUT= WORK.dataset 
+            DATAFILE= "dataset.csv" 
+            DBMS=CSV REPLACE;
+     GETNAMES=YES;
+     DATAROW=2; 
+RUN;
+
+* Create group variable ;
+DATA dataset ;
+  set dataset ;
+  if       . <  bmi_calc < 25 then bmi_grp = '  <25' ;
+  else if 25 <= bmi_calc < 30 then bmi_grp = '25-30' ;
+  else if 30 <= bmi_calc      then bmi_grp = '  >30' ;
+
+  if      . < nmr_ace <= 2 then bin_var = 0 ;
+  else if 2 < nmr_ace      then bin_var = 1 ;
+RUN;
+
+* Set up labels ;
+PROC FORMAT;
+    VALUE $bmigrplabels (NOTSORTED)
+        '  <25' = '  <25'
+        '25-30' = '25-30'
+        '  >30' = '  >30'
+        'All'   = 'Total' ;
+
+    VALUE $variablelabels (NOTSORTED)
+        'N'       = 'No. of participants' 
+        'nmr_glc' = 'NMR GLC'
+        'bin_var' = 'Binary variable' ;
+RUN;
+
+* Output tables to an RTF file ;
+ODS RTF FILE = "\baseline tables.rtf" STYLE=Journal2;
+
+* Use doprevtables macro ;
+%doprevtables(DATA_IN         = dataset, 
+              DEPEND_LIST     = nmr_glc bin_var  ,
+              VARIABLELABELS  = $variablelabels. ,
+              PERCVAR         = bmi_grp ,
+              PERCVARLABELS   = $bmigrplabels. ,
+              PERCVARNAME     = BMI,
+              STRATA          = is_female region_code, 
+              OUTPUT          = dpt_output, 
+              WHERE           = ,
+              TABLETYPE       = 3);
+
+ODS RTF CLOSE;
+```
+![](doprevtablesoutput.png)
+
+#### Macro code
+
+<input type=button class=hideshow></input>
+
+```{r, eval = FALSE}
+
+%MACRO doprevtables(data_in=, depend_list=, variablelabels=, percvar=, percvarlabels=, percvarname=, strata=, output=, where= , tabletype=3);
+
+    ods exclude all;
+
+    PROC DATASETS LIBRARY=WORK;
+      DELETE &output &output._2 &output._3;
+ 
+    RUN;
+
+    %do i=1 %to %sysfunc(countw(&depend_list));
+        %let next_var = %scan(&depend_list, &i);
+
+        /* checking if binary (could be slow?) */
+        %let binary = 1;
+        data _null_;
+            set &data_in ;
+            where &where ;
+            if (&next_var~=. AND &next_var.*(&next_var.-1)~=0) then /* x*(x-1)=0 iff x=0 or 1 */
+                do;
+                    call symput("binary",0);
+                    stop;
+                end;
+        run;
+
+        data _null_;
+            putlog "&next_var is binary? = &binary (0=No 1=Yes)";
+        run;
+
+        %doprev(data_in=&data_in, depend=&next_var, percvar=&percvar, strata=&strata , do_freq=&binary. , 
+                data_out=_mdp_&i , where=&where, cleanup=1);
+
+        DATA _mdp_&i ;
+            SET _mdp_&i ;
+            binary = &binary;
+            rawsd = RAWSEM*sqrt(N);
+        RUN;
+
+        proc means data=&data_in mean stddev;
+            where &where ;
+            var &next_var ;
+            output out=_mdp_means mean=RAWMEAN stddev=RAWSD;
+        run;
+
+        data _mdp_means (keep = &percvar RAWMEAN VARIABLE ADJMEAN RAWSD binary);
+            set _mdp_means;
+            VARIABLE="&next_var." ;
+            &percvar.='All' ;
+            binary=&binary ;
+            adjmean = rawmean ;
+        run;
+
+        proc append base=_mdp_&i data=_mdp_means  ;
+        run;
+
+        proc append base=&output data=_mdp_&i  ;
+        run;
+
+        QUIT; /* is this needed? */
+
+
+    %end;
+
+
+    DATA &output;
+        SET &output ;
+
+        if binary=1 then rawmean=100*rawmean;
+        if binary=1 then adjmean=100*adjmean;
+        if binary=1 then rawsd=.;
+    RUN;
+
+    %if &tabletype=0 %then %do;
+        data _null_;
+            putlog "No tables to be produced.";
+        run;
+    %end;
+
+
+    %if &tabletype=1 %then %do;
+        /* TABLE(S) STYLE 1 */
+        ods exclude none;
+
+        ods text = 'Means and prevalences calculated using doprev (written by Paul Sherliker).';
+        proc tabulate data=&output FORMAT=9.1;
+            where binary NE 1;
+            class &percvar variable / order=data preloadfmt style=[font_weight=bold font_style=Roman];
+            CLASSLEV &percvar variable / style=[font_style=Roman];
+            var adjmean rawsd;
+            table variable='', &percvar.*(adjmean=''*sum='' rawsd=''*sum=''*format=paren1p.) / BOX='Mean (SD)' style=[outputwidth=100%];
+            LABEL &percvar = "&percvarname" ;
+            FORMAT &percvar &percvarlabels variable &variablelabels ;
+        run;
+
+        proc tabulate data=&output FORMAT=9.1;
+            WHERE binary=1;
+            class &percvar variable / order=data preloadfmt style=[font_weight=bold font_style=Roman];
+            CLASSLEV variable / style=[font_style=Roman];
+            CLASSLEV &percvar / style=[font_style=Roman just=Right] ;
+            var adjmean ;
+            table variable='', &percvar.*(adjmean=''*sum='' )/ BOX='%' style=[outputwidth=100%] ;
+            LABEL &percvar = "&percvarname" ;
+            FORMAT &percvar &percvarlabels variable &variablelabels ;
+        run;
+    %end;
+
+    %if &tabletype=2 %then %do;
+        /* TABLE(S) STYLE 2 */
+
+        ods exclude none;
+        ods startpage= now ;
+        ods text = 'Means and prevalences calculated using doprev (written by Paul Sherliker).';
+        proc tabulate data=&output FORMAT=9.1 ;
+            class &percvar variable / order=data preloadfmt style=[font_weight=bold font_style=Roman];
+            CLASSLEV &percvar variable / style=[font_style=Roman];
+            var adjmean rawsd;
+            table variable='', &percvar.*(adjmean=''*sum='' rawsd=''*sum=''*format=paren1p.) / BOX='' style=[outputwidth=100%];
+            LABEL &percvar = "&percvarname"  ;
+            FORMAT &percvar &percvarlabels variable &variablelabels ;
+        run;
+    %end;
+
+    %if &tabletype=3 %then %do;
+        /* TABLE(S) STYLE 3 */
+
+        ods exclude all;
+        PROC TABULATE data=&data_in  FORMAT=COMMA10.0 out=_mdp_freqs;
+            where (is_female=1 & cancer_diag=0 & had_hysterectomy=0) ;
+            CLASS &percvar ;
+            TABLE &percvar ALL='' , N  ;
+        RUN;
+
+        data _mdp_freqs (keep = &percvar variable adjmean);
+            set _mdp_freqs;
+            if _TYPE_=0 then &percvar.='All';
+            variable='N';
+            adjmean=N;
+        run;
+
+        proc append base=&output data=_mdp_freqs  ;
+        run;
+
+        PROC DATASETS LIBRARY=WORK;
+            DELETE _mdp_freqs ;
+        RUN;
+
+        data &output._tablestyle3 (keep = &percvar variable todisplay);
+            length todisplay $ 30 ;
+            set &output. ;
+            if binary = 0 then todisplay = strip(putn(adjmean,9.1)) || ' (' || strip(putn(rawsd,9.1)) || ')' ;
+            if binary = 1 then todisplay = strip(putn(adjmean,9.1)) ;
+            if variable = 'N' then todisplay = strip(putn(adjmean,'COMMA9.0')) ;
+        run;
+
+        ods exclude none;
+        ods startpage= now ;
+        ods text = 'Means and prevalences calculated using doprev (written by Paul Sherliker).';
+        proc report data=&output._tablestyle3 SPLIT='#' style=[outputwidth=100%];
+            column variable todisplay,&percvar dummyvar ;
+            define variable / group 'Characteristic' order=data preloadfmt f=&variablelabels style(HEADER)=[font_weight=bold font_style=Roman just=Left];
+            define &percvar / across "&percvarname" order=data preloadfmt f=&percvarlabels style(HEADER)=[font_weight=bold font_style=Roman just=Right];
+            define todisplay / display '' style=[just=Right];
+            define dummyvar / computed noprint;
+            compute dummyvar;
+                dummyvar = 1;
+            endcomp;
+        run;
+    %end;
+
+
+    proc datasets lib=work memtype=data nolist;
+        delete _mdp_: ;
+    quit;
+
+%MEND doprevtables;
+```
+
+
+
+
+
+
+
+#### Notes
+
+The PERCVARLABELS should include a label for 'All', and the VARIABLELABELS should include a label for 'N'.
+
+
+The macro uses `_mdp_` as a prefix for temporary datasets in the Work library.
+
