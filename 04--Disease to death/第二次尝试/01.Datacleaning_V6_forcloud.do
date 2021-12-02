@@ -18,6 +18,7 @@
 // Version 6
 * 2021/11/24 manually deal with the situation where participants died because CMD (i.e., the date of CMD and CMM are the name)
 * 2021/11/30 generate the fcmd other than the index disease
+* 2021/12/02 move "drop the only one because of missing on diagnosis age" before the generation of updated duration 
 
 **********************************************************************************************************
 **********************************************************************************************************
@@ -633,6 +634,9 @@ local elist du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999
 foreach e of local elist{
 
 	use "1.Data/project2.dta", clear
+	* 编号4711627的研究对象，基线患有三种疾病，但都没有调对应的时间
+	drop if (chd_diag == 1 & chd_diag_age ==.) |  (stroke_or_tia_diag == 1 & stroke_or_tia_diag_age ==.) | (diabetes_diag == 1 & diabetes_diag_age == .) 
+
 	/* 对数据进行切割 */
 	*** Set survival data
 	stset `e'_date, id(studyid) enter(study_date) origin(time dob_anon) scale(365.25) failure(`e' == 1)
@@ -763,6 +767,9 @@ local elist du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999
 foreach e of local elist{
 
 	use "1.Data/project2.dta", clear
+	* 编号4711627的研究对象，基线患有三种疾病，但都没有调对应的时间
+	drop if (chd_diag == 1 & chd_diag_age ==.) |  (stroke_or_tia_diag == 1 & stroke_or_tia_diag_age ==.) | (diabetes_diag == 1 & diabetes_diag_age == .) 
+
 	/* 对数据进行切割 */
 	*** Set survival data
 	stset `e'_date, id(studyid) enter(study_date) origin(time dob_anon) scale(365.25) failure(`e' == 1)
@@ -917,8 +924,6 @@ local elist du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999
 foreach e of local elist{
 
 	use "1.Data/project2_updated_`e'.dta", clear
-	* 编号4711627的研究对象，基线患有三种疾病，但都没有调对应的时间
-	drop if (chd_diag == 1 & chd_diag_age ==.) |  (stroke_or_tia_diag == 1 & stroke_or_tia_diag_age ==.) | (diabetes_diag == 1 & diabetes_diag_age == .) 
 	stsplit aage, every(0.5)
 
 
@@ -1045,8 +1050,7 @@ local elist du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999
 foreach e of local elist{
 
 	use "1.Data/project2_updated_`e'_nochg.dta", clear
-	* 编号4711627的研究对象，基线患有三种疾病，但都没有调对应的时间
-	drop if (chd_diag == 1 & chd_diag_age ==.) |  (stroke_or_tia_diag == 1 & stroke_or_tia_diag_age ==.) | (diabetes_diag == 1 & diabetes_diag_age == .) 
+
 	stsplit aage, every(0.5)
 
 

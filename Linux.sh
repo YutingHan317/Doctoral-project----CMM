@@ -171,7 +171,7 @@ qsub statado.pbs -v dofile=0.Code/01.Datacleaning_V6_forcloud.do
 qsub statado.pbs -v dofile=0.Code/05.DXDV1.do
 qsub statado.pbs -v dofile=0.Code/05.DXDV2.do
 qsub statado.pbs -v dofile=0.Code/test.do
-qsub statado.pbs -v dofile=0.Code/02.Cohort_characteristics_cloudV2.do
+qsub statado.pbs -v dofile=0.Code/02.Cohort_characteristics_updated.do
 
 
 
@@ -276,8 +276,8 @@ qsub statado_multi2.pbs -v dofile=0.Code/11.duration_tableV4_temp.do,endpoint="d
 # Incident dicho disease
 eplist="du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999"
 exposure_list="diabetes_diag_updated chd_diag_updated stroke_diag_updated"
-for i in $eplist; do
-	for j in $exposure_list; do
+for i in $eplist;do
+	for j in $exposure_list;do
 			qsub statado_multi2.pbs -v dofile=0.Code/03.Diff_type_exposureV5_nochg_new.do,endpoint=$i,exposure=$j ;
 	done
 done
@@ -285,8 +285,8 @@ done
 # Updated duration of disease
 eplist="du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999"
 exposure_list="duration_diabetes_updated_8g duration_chd_updated_8g duration_stroke_updated_8g"
-for i in $eplist; do
-	for j in $exposure_list; do
+for i in $eplist;do
+	for j in $exposure_list;do
 			qsub statado_multi2.pbs -v dofile=0.Code/04.duration_tableV6_nochg.do,endpoint=$i,exposure=$j ;
 	done
 done
