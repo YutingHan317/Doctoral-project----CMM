@@ -140,7 +140,7 @@ done
 ####### qsub循环
 eplist="du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999"
 for i in $eplist; do 
-	qsub diff_exposure_CMMV1.pbs -v dofile=0.Code/03.Diff_type_exposureV3_nochg.do,endpoint=$i ; 
+	qsub diff_exposure_CMMV1.pbs -v dofile=0.Code/03.Diff_type_exposureV5_nochg_old.do,endpoint=$i ; 
 done
 ###################################################################################################################################
 #########################################          只更改一个dofile的pbs文件       ##################################################
@@ -264,8 +264,23 @@ for i in $eplist; do
 	qsub statado_multi.pbs -v dofile=0.Code/15.Sensitivitynochg_duration.do,endpoint=$i; 
 done
 
+####### qsub循环
+eplist="du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999"
+for i in $eplist; do 
+	qsub statado_multi.pbs -v dofile=0.Code/05.Subgroupsfordisease.do,endpoint=$i; 
+done
 
+####### qsub循环
+eplist="du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999"
+for i in $eplist; do 
+	qsub statado_multi.pbs -v dofile=0.Code/07.Sensitivitydrop2yfordisease.do,endpoint=$i; 
+done
 
+####### qsub循环
+eplist="du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999"
+for i in $eplist; do 
+	qsub statado_multi.pbs -v dofile=0.Code/08.Sensitivityadjmedfordisease.do,endpoint=$i; 
+done
 
 qsub statado_multi.pbs -v dofile=0.Code/11.duration_tableV4_temp.do,endpoint="du_ep0001"
 qsub statado_multi2.pbs -v dofile=0.Code/11.duration_tableV4_temp.do,endpoint="du_ep0001"
@@ -290,6 +305,37 @@ for i in $eplist;do
 			qsub statado_multi2.pbs -v dofile=0.Code/04.duration_tableV6_nochg.do,endpoint=$i,exposure=$j ;
 	done
 done
+
+# Subgroup for Updated duration of disease
+eplist="du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999"
+exposure_list="duration_diabetes_updated_8g duration_chd_updated_8g duration_stroke_updated_8g"
+for i in $eplist;do
+	for j in $exposure_list;do
+			qsub statado_multi2.pbs -v dofile=0.Code/06.Subgroupsforduration.do,endpoint=$i,exposure=$j;
+	done
+done
+
+# Sensitivity drop 2y for disease
+eplist="du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999"
+exposure_list="duration_diabetes_updated_8g duration_chd_updated_8g duration_stroke_updated_8g"
+for i in $eplist;do
+	for j in $exposure_list;do
+			qsub statado_multi2.pbs -v dofile=0.Code/07.Sensitivitydrop2yforduration.do,endpoint=$i,exposure=$j;
+	done
+done
+
+
+ 
+# Sensitivity drop 2y for duration  
+eplist="du_ep0001 du_ep0002 du_ep0014 du_ep0032 du_ep9999"
+exposure_list="duration_diabetes_updated_8g duration_chd_updated_8g duration_stroke_updated_8g"
+for i in $eplist;do
+	for j in $exposure_list;do
+			qsub statado_multi2.pbs -v dofile=0.Code/08.Sensitivityadjmedforduration.do,endpoint=$i,exposure=$j;
+	done
+done
+
+
 
 
 ###################################################################################################################################

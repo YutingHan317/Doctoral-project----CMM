@@ -550,3 +550,17 @@ lincom 5.duration_stroke_updated_8g + 5.duration_stroke_updated_8g#1.fcmd_notstr
 lincom 6.duration_stroke_updated_8g + 6.duration_stroke_updated_8g#1.fcmd_notstroke_updated,eform
 lincom 7.duration_stroke_updated_8g + 7.duration_stroke_updated_8g#1.fcmd_notstroke_updated,eform
 lincom 8.duration_stroke_updated_8g + 8.duration_stroke_updated_8g#1.fcmd_notstroke_updated,eform
+
+
+
+
+
+use 1.Data/project2_updated_du_ep0001_duration3_nochg.dta,clear
+global adjusted_model i.is_female i.highest_education i.household_income i.marital_status i.diabetes_fh_2groups i.chd_fh_2groups i.stroke_fh_2groups i.smoking_5groups i.alcohol_7groups i.diet_5score i.bmi_4groups i.WC_3groups i.PA_5groups i.has_hypertension i.kidney_dis_diag i.rheum_heart_dis_diag
+stcox i.duration_diabetes_updated_8g i.duration_chd_updated_8g i.duration_stroke_updated_8g ${adjusted_model}, strata(age_strata region_code) cformat(%9.2f)
+estimates store a
+stcox i.duration_diabetes_updated_8g i.duration_diabetes_updated_8g#i.is_female i.duration_chd_updated_8g i.duration_stroke_updated_8g ${adjusted_model}, strata(age_strata region_code) cformat(%9.2f)
+estimates store b
+lrtest a b
+
+

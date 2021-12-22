@@ -615,6 +615,10 @@ drop PA_5groups1 PA_5groups2 PA_5groups3 PA_5groups4 PA_5groups5 PA_5groups6
 ***detect missing values
 misstable summarize has_hypertension - PA_5groups
 
+*** Generate variabel denote died in 2y after the baseline
+gen drop2y = 1 if du_ep0001 == 1 & (du_ep0001_date - study_date)/365.25 < 2
+	replace drop2y = 0 if mi(drop2y)
+
 save "1.Data/project2.dta",replace
 
 
@@ -1138,7 +1142,6 @@ foreach e of local elist{
 
 	save "1.Data/project2_updated_`e'_duration3_nochg.dta", replace 
 }
-
 
 
 log close
